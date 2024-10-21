@@ -5,7 +5,7 @@ index 6ef061f7..241c9e95 100644
 --- a/wazo_calld/plugins/endpoints/bus.py
 +++ b/wazo_calld/plugins/endpoints/bus.py
 @@ -1,4 +1,4 @@
--# Copyright 2019-2024 The Wazo Authors  (see the AUTHORS file)
+-# Copyright 2019-2023 The Wazo Authors  (see the AUTHORS file)
 +# Copyright 2019-2024 The Wazo Authors  (see the AUTHORS file)
  # SPDX-License-Identifier: GPL-3.0-or-later
  
