@@ -1,0 +1,144 @@
+#!/bin/bash
+patch --verbose --reject-file - -p1 -d /usr/lib/python3/dist-packages/ <<EOF
+diff --git a/wazo_calld/plugins/endpoints/bus.py b/wazo_calld/plugins/endpoints/bus.py
+index 6ef061f7..241c9e95 100644
+--- a/wazo_calld/plugins/endpoints/bus.py
++++ b/wazo_calld/plugins/endpoints/bus.py
+@@ -1,4 +1,4 @@
+-# Copyright 2019-2024 The Wazo Authors  (see the AUTHORS file)
++# Copyright 2019-2024 The Wazo Authors  (see the AUTHORS file)
+ # SPDX-License-Identifier: GPL-3.0-or-later
+ 
+ import logging
+@@ -7,6 +7,12 @@ logger = logging.getLogger(__name__)
+ 
+ 
+ class EventHandler:
++    techno_map = {
++        'sip': 'PJSIP',
++        'iax': 'IAX2',
++        'custom': 'custom',
++    }
++
+     def __init__(self, endpoint_status_cache, confd_cache):
+         self._endpoint_status_cache = endpoint_status_cache
+         self._confd_cache = confd_cache
+@@ -124,6 +130,9 @@ class EventHandler:
+             sip_username,
+             event['line']['tenant_uuid'],
+         )
++        self._endpoint_status_cache.add_new_sip_endpoint(
++            event['endpoint_sip']['name'],
++        )
+ 
+     def on_line_endpoint_sccp_associated(self, event):
+         self._confd_cache.add_line(
+@@ -156,6 +165,9 @@ class EventHandler:
+             sip_username,
+             event['trunk']['tenant_uuid'],
+         )
++        self._endpoint_status_cache.add_new_sip_endpoint(
++            event['endpoint_sip']['name'],
++        )
+ 
+     def on_trunk_endpoint_iax_associated(self, event):
+         self._confd_cache.add_trunk(
+@@ -165,6 +177,9 @@ class EventHandler:
+             None,
+             event['trunk']['tenant_uuid'],
+         )
++        self._endpoint_status_cache.add_new_iax_endpoint(
++            event['endpoint_iax']['name'],
++        )
+ 
+     def on_line_endpoint_custom_associated(self, event):
+         self._confd_cache.add_line(
+@@ -194,7 +209,12 @@ class EventHandler:
+         self._confd_cache.delete_line(event['id'])
+ 
+     def on_trunk_endpoint_deleted(self, event):
++        trunk = self._confd_cache.get_trunk_by_id(event['id'])
+         self._confd_cache.delete_trunk(event['id'])
++        if trunk:
++            self._endpoint_status_cache.pop(
++                self.techno_map[trunk['technology']], trunk['name']
++            )
+ 
+     def on_endpoint_sip_updated(self, event):
+         trunk = event['trunk']
+diff --git a/wazo_calld/plugins/endpoints/services.py b/wazo_calld/plugins/endpoints/services.py
+index 8acc831a..5d98c238 100644
+--- a/wazo_calld/plugins/endpoints/services.py
++++ b/wazo_calld/plugins/endpoints/services.py
+@@ -72,12 +72,32 @@ class StatusCache:
+ 
+         self._endpoints[endpoint.techno][endpoint.name] = endpoint
+ 
++    def add_new_sip_endpoint(self, endpoint_name):
++        if self._endpoints is None:
++            raise CalldUninitializedError()
++
++        # endpoint is unlikely to exist in ARI yet, so create it as unregistered
++        self.add_endpoint(Endpoint('PJSIP', endpoint_name, False, []))
++
++    def add_new_iax_endpoint(self, endpoint_name):
++        if self._endpoints is None:
++            raise CalldUninitializedError()
++
++        # endpoint is unlikely to exist in ARI yet, so create it as unregistered
++        self.add_endpoint(Endpoint('IAX2', endpoint_name, False, []))
++
+     def get(self, techno, name):
+         if self._endpoints is None:
+             raise CalldUninitializedError()
+ 
+         return self._endpoints.get(techno, {}).get(name)
+ 
++    def pop(self, techno, name):
++        if self._endpoints is None:
++            raise CalldUninitializedError()
++
++        return self._endpoints.get(techno, {}).pop(name, None)
++
+     def initialize(self):
+         logger.debug('initializing endpoint status...')
+         for endpoint in self._ari.endpoints.list():
+@@ -151,8 +171,9 @@ class ConfdCache:
+             'name': name,
+             'tenant_uuid': tenant_uuid,
+         }
+-        self._trunks.setdefault(techno, {'name': {}, 'username': {}})
++        self._trunks.setdefault(techno, {'id': {}, 'name': {}, 'username': {}})
+         self._trunks[techno]['name'][name] = value
++        self._trunks[techno]['id'][trunk_id] = value
+         if username:
+             self._trunks[techno].setdefault('username', {})
+             self._trunks[techno]['username'][username] = value
+@@ -187,6 +208,14 @@ class ConfdCache:
+     def get_trunk(self, techno, name):
+         return self._get_endpoint_by_index(techno, name, self._trunks, index='name')
+ 
++    def get_trunk_by_id(self, trunk_id):
++        for techno in self._trunks.keys():
++            if trunk := self._get_endpoint_by_index(
++                techno, trunk_id, self._trunks, index='id'
++            ):
++                return trunk
++        return None
++
+     def get_trunk_by_username(self, techno, username):
+         return self._get_endpoint_by_index(
+             techno, username, self._trunks, index='username'
+@@ -297,8 +326,9 @@ class ConfdCache:
+                 'tenant_uuid': trunk['tenant_uuid'],
+             }
+ 
+-            self._trunks.setdefault(techno, {'name': {}, 'username': {}})
++            self._trunks.setdefault(techno, {'id': {}, 'name': {}, 'username': {}})
+             self._trunks[techno]['name'][name] = value
++            self._trunks[techno]['id'][trunk['id']] = value
+             self._trunks[techno]['username'][username] = value
+ 
+         for trunk in trunks:
+EOF
+systemctl restart wazo-calld
