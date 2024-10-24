@@ -4,8 +4,8 @@ version: 1.0.0
 author: Wazo authors
 display_name: Fix line status after creation
 plugin_format_version: 1
-min_wazo_version: 24.10
-max_wazo_version: 24.11
+min_wazo_version: '24.10'
+max_wazo_version: '24.10'
 tags:
   - calls
   - lines
